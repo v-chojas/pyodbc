@@ -197,7 +197,9 @@ static bool create_name_map(Cursor* cur, SQLSMALLINT field_count, bool lower)
             break;
         }
 
-        TRACE("Col %d: type=%s (%d) colsize=%d\n", (i+1), SqlTypeName(nDataType), (int)nDataType, (int)nColSize);
+        printf("Col %d: type=%s (%d) colsize=%d\n", (i+1), SqlTypeName(nDataType), (int)nDataType, (int)nColSize);
+        printf("enc: %d (%s) ctype=%d cbName=%d\n", enc.optenc, enc.name, (int)enc.ctype, (int)cbName);
+        PrintBytes(szName, cbName);
 
         Object name(TextBufferToObject(enc, szName, cbName));
 
