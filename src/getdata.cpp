@@ -95,7 +95,7 @@ static bool ReadVarColumn(Cursor* cur, Py_ssize_t iCol, SQLSMALLINT ctype, bool&
     // TODO: Make the initial allocation size configurable?
     Py_ssize_t cbAllocated = 4096;
     Py_ssize_t cbUsed = 0;
-    byte* pb = (byte*)malloc((size_t)cbAllocated);
+    byte* pb = (byte*)pyodbc_malloc((size_t)cbAllocated);
     if (!pb)
     {
         PyErr_NoMemory();
@@ -121,6 +121,7 @@ static bool ReadVarColumn(Cursor* cur, Py_ssize_t iCol, SQLSMALLINT ctype, bool&
 
         if (!SQL_SUCCEEDED(ret) && ret != SQL_NO_DATA)
         {
+            pyodbc_free(pb);
             RaiseErrorFromHandle("SQLGetData", cur->cnxn->hdbc, cur->hstmt);
             return false;
         }
@@ -225,7 +226,7 @@ static byte* ReallocOrFreeBuffer(byte* pb, Py_ssize_t cbNeed)
     // is freed, a memory exception is set, and 0 is returned.  Otherwise the new pointer is
     // returned.
 
-    byte* pbNew = (byte*)realloc(pb, (size_t)cbNeed);
+    byte* pbNew = (byte*)pyodbc_realloc(pb, (size_t)cbNeed);
     if (pbNew == 0)
     {
         pyodbc_free(pb);

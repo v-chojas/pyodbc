@@ -718,6 +718,8 @@ bool PrepareAndBind(Cursor* cur, PyObject* pSql, PyObject* original_params, bool
     if (pSql != cur->pPreparedSQL)
     {
         FreeParameterInfo(cur);
+        I(cur->paramInfos == 0);
+        I(cur->paramtypes == 0)
 
         SQLRETURN ret = 0;
         SQLSMALLINT cParamsT = 0;

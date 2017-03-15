@@ -217,15 +217,15 @@ PyObject* Connection_New(PyObject* pConnectString, bool fAutoCommit, bool fAnsi,
     // Server the encoding is based on the database's collation.  We ask the driver / DB to
     // convert to SQL_C_WCHAR and use the ODBC default of UTF-16LE.
     cnxn->sqlchar_enc.optenc = OPTENC_UTF16LE;
-    cnxn->sqlchar_enc.name   = _strdup("utf-16le");
+    cnxn->sqlchar_enc.name   = pyodbc_strdup("utf-16le");
     cnxn->sqlchar_enc.ctype  = SQL_C_WCHAR;
 
     cnxn->sqlwchar_enc.optenc = OPTENC_UTF16LE;
-    cnxn->sqlwchar_enc.name   = _strdup("utf-16le");
+    cnxn->sqlwchar_enc.name   = pyodbc_strdup("utf-16le");
     cnxn->sqlwchar_enc.ctype  = SQL_C_WCHAR;
 
     cnxn->metadata_enc.optenc = OPTENC_UTF16LE;
-    cnxn->metadata_enc.name   = _strdup("utf-16le");
+    cnxn->metadata_enc.name   = pyodbc_strdup("utf-16le");
     cnxn->metadata_enc.ctype  = SQL_C_WCHAR;
 
     // Note: I attempted to use UTF-8 here too since it can hold any type, but SQL Server fails
@@ -233,12 +233,12 @@ PyObject* Connection_New(PyObject* pConnectString, bool fAutoCommit, bool fAnsi,
     // character.  I don't know if this is a bug in SQL Server's driver or if I'm missing
     // something, so we'll stay with the default ODBC conversions.
     cnxn->unicode_enc.optenc = OPTENC_UTF16LE;
-    cnxn->unicode_enc.name   = _strdup("utf-16le");
+    cnxn->unicode_enc.name   = pyodbc_strdup("utf-16le");
     cnxn->unicode_enc.ctype  = SQL_C_WCHAR;
 
 #if PY_MAJOR_VERSION < 3
     cnxn->str_enc.optenc = OPTENC_UTF8;
-    cnxn->str_enc.name   = _strdup("utf-8");
+    cnxn->str_enc.name   = pyodbc_strdup("utf-8");
     cnxn->str_enc.ctype  = SQL_C_CHAR;
 
     cnxn->sqlchar_enc.to  = TO_UNICODE;
@@ -402,16 +402,16 @@ static int Connection_clear(PyObject* self)
     Py_XDECREF(cnxn->searchescape);
     cnxn->searchescape = 0;
 
-    free((void*)cnxn->sqlchar_enc.name);
+    pyodbc_free((void*)cnxn->sqlchar_enc.name);
     cnxn->sqlchar_enc.name = 0;
-    free((void*)cnxn->sqlwchar_enc.name);
+    pyodbc_free((void*)cnxn->sqlwchar_enc.name);
     cnxn->sqlwchar_enc.name = 0;
-    free((void*)cnxn->metadata_enc.name);
+    pyodbc_free((void*)cnxn->metadata_enc.name);
     cnxn->metadata_enc.name = 0;
-    free((void*)cnxn->unicode_enc.name);
+    pyodbc_free((void*)cnxn->unicode_enc.name);
     cnxn->unicode_enc.name = 0;
 #if PY_MAJOR_VERSION < 3
-    free((void*)cnxn->str_enc.name);
+    pyodbc_free((void*)cnxn->str_enc.name);
     cnxn->str_enc.name = 0;
 #endif
 
@@ -1116,14 +1116,14 @@ static bool SetTextEncCommon(TextEnc& enc, const char* encoding, int ctype, bool
         return false;
     }
 
-    char* cpy = _strdup(encoding);
+    char* cpy = pyodbc_strdup(encoding);
     if (!cpy)
     {
         PyErr_NoMemory();
         return false;
     }
 
-    free((void*)enc.name);
+    pyodbc_free((void*)enc.name);
     enc.name = cpy;
 
     if (strstr("|utf-8|utf8|", lower))

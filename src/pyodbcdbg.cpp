@@ -102,88 +102,178 @@ void DebugTrace(const char* szFmt, ...)
 
 #ifdef PYODBC_LEAK_CHECK
 
-// THIS IS NOT THREAD SAFE: This is only designed for the single-threaded unit tests!
+// These structures are not thread safe!  They are intended for use while holding the GC lock.
 
-struct Allocation
+enum {
+    MAGIC = 0xE3E3E3E3
+};
+
+struct BlockHeader
 {
+    unsigned int magic;
+    // BlockHeader* phdrPrev;
+    BlockHeader* next;
     const char* filename;
     int lineno;
     size_t len;
-    void* pointer;
-    int counter;
+    byte pb[0];
 };
 
-static Allocation* allocs = 0;
-static int bufsize = 0;
-static int count = 0;
-static int allocCounter = 0;
+static BlockHeader* header_list = 0;
+// All allocated block headers in a linked list.
+
+inline void AddToList(BlockHeader* phdr)
+{
+    phdr->next = header_list;
+    header_list = phdr;
+}
+
+inline BlockHeader** FindInList(BlockHeader* phdr)
+{
+    // Search the list for the pointer that points to phdr.  Return 0 if not found.
+    BlockHeader** pp = &header_list;
+    while (*pp != 0 && *pp != phdr)
+        pp = &((*pp)->next);
+    return pp;
+}
+
+void RemoveFromList(BlockHeader* phdr)
+{
+    // Find the pointer to `phdr` and set it to the item after phdr.
+    BlockHeader** pp = FindInList(phdr);
+    I(pp);
+    *pp = phdr->next;
+}
+
+void DumpList()
+{
+    printf("\nLIST\n");
+    BlockHeader* p = header_list;
+    while (p)
+    {
+        printf(" - hdr=%p %s(%d) ptr=%p\n", p, p->filename, p->lineno, p->pb);
+        p = p->next;
+    }
+}
 
 void* _pyodbc_malloc(const char* filename, int lineno, size_t len)
 {
-    void* p = malloc(len);
-    if (p == 0)
+    BlockHeader* phdr = (BlockHeader*)malloc(len + sizeof(BlockHeader));
+    if (phdr == 0)
         return 0;
 
-    if (count == bufsize)
-    {
-        allocs = (Allocation*)realloc(allocs, (bufsize + 20) * sizeof(Allocation));
-        if (allocs == 0)
-        {
-            // Yes we just lost the original pointer, but we don't care since everything is about to fail.  This is a
-            // debug leak check, not a production malloc that needs to be robust in low memory.
-            bufsize = 0;
-            count   = 0;
-            return 0;
-        }
-        bufsize += 20;
-    }
+    phdr->magic    = MAGIC;
+    phdr->filename = filename;
+    phdr->lineno   = lineno;
+    phdr->len      = len;
+    memset(phdr->pb, 0xCD, len);
 
-    allocs[count].filename = filename;
-    allocs[count].lineno   = lineno;
-    allocs[count].len      = len;
-    allocs[count].pointer  = p;
-    allocs[count].counter  = allocCounter++;
+    // printf("malloc: header=%p ptr=%p %s %d\n", phdr, phdr->pb, filename, lineno);
+    AddToList(phdr);
 
-    printf("malloc(%d): %s(%d) %d %p\n", allocs[count].counter, filename, lineno, (int)len, p);
+    I(HeaderFromAlloc(phdr->pb) == phdr);
 
-    count += 1;
+    DumpList();
 
-    return p;
+    return phdr->pb;
 }
 
-void pyodbc_free(void* p)
+inline BlockHeader* HeaderFromAlloc(void* p)
+{
+    // REVIEW: Redo this.  I did it all in one expression before and messed something up.
+    byte* pT = (byte*)p;
+    pT -= offsetof(BlockHeader, pb);
+    BlockHeader* phdr = (BlockHeader*)pT;
+    if (phdr->magic != MAGIC)
+    {
+        printf("INVALID BLOCK!!!");
+        PrintBytes(phdr, sizeof(BlockHeader));
+        return 0;
+    }
+    return phdr;
+}
+
+void* _pyodbc_realloc(const char* filename, int lineno, void* p, size_t len)
+{
+    if (p == 0)
+        return _pyodbc_malloc(filename, lineno, len);
+
+    if (len == 0)
+    {
+        pyodbc_free(p);
+        return 0;
+    }
+
+    // We're going to always reallocate.
+
+
+    void* pbNew = _pyodbc_malloc(filename, lineno, len);
+    if (!pbNew)
+    {
+        pyodbc_free(p);
+        return 0;
+    }
+
+    BlockHeader* phdrOld = p ? HeaderFromAlloc(p) : 0;
+    BlockHeader* phdrNew = HeaderFromAlloc(pbNew);
+
+    I(p == 0 || phdrHold); // make sure we print something
+
+    if (phdrOld)
+    {
+        memcpy(pbNew, p, min(phdrOld->len, phdrNew->len));
+    }
+
+    pyodbc_free(p);
+
+    return pbNew;
+}
+
+void _pyodbc_free(const char* filename, int lineno, void* p)
 {
     if (p == 0)
         return;
 
-    for (int i = 0; i < count; i++)
+    // printf("free start %p list=%p\n", p, header_list);
+    BlockHeader* phdr = HeaderFromAlloc(p);
+    if (phdr)
     {
-        if (allocs[i].pointer == p)
-        {
-            printf("free(%d): %s(%d) %d %p i=%d\n", allocs[i].counter, allocs[i].filename, allocs[i].lineno, (int)allocs[i].len, allocs[i].pointer, i);
-            memmove(&allocs[i], &allocs[i + 1], sizeof(Allocation) * (count - i - 1));
-            count -= 1;
-            free(p);
-            return;
-        }
+        // printf("free: %p %s %d\n", p, phdr->filename, phdr->lineno);
+        RemoveFromList(phdr);
+        free(phdr);
     }
+    else
+    {
+        printf("ERROR: free of invalid pointer at %s(%d) ptr=%p\n", filename, lineno, p);
+    }
+    DumpList();
+}
 
-    printf("FREE FAILED: %p\n", p);
-    free(p);
+char* _pyodbc_strdup(const char* filename, int lineno, const char* sz)
+{
+    size_t cch = strlen(sz);
+    char* pch = (char*)_pyodbc_malloc(filename, lineno, cch+1);
+    if (!pch)
+        return 0;
+    memcpy(pch, sz, cch+1); // +1 for the NULL terminator
+    return pch;
 }
 
 void pyodbc_leak_check()
 {
-    if (count == 0)
+    if (header_list == 0)
     {
         printf("NO LEAKS\n");
     }
     else
     {
         printf("********************************************************************************\n");
-        printf("%d leaks\n", count);
-        for (int i = 0; i < count; i++)
-            printf("LEAK: %d %s(%d) len=%d\n", allocs[i].counter, allocs[i].filename, allocs[i].lineno, allocs[i].len);
+        BlockHeader* phdr = header_list;
+        while (phdr)
+        {
+            printf("LEAK: %s(%d) len=%lu\n", phdr->filename, phdr->lineno, phdr->len);
+            phdr = phdr->next;
+        }
     }
 }
 

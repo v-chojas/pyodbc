@@ -126,15 +126,23 @@ inline void DebugTrace(const char* szFmt, ...) { UNUSED(szFmt); }
 #endif
 #define TRACE DebugTrace
 
-// #ifdef PYODBC_LEAK_CHECK
-// #define pyodbc_malloc(len) _pyodbc_malloc(__FILE__, __LINE__, len)
-// void* _pyodbc_malloc(const char* filename, int lineno, size_t len);
-// void pyodbc_free(void* p);
-// void pyodbc_leak_check();
-// #else
+#ifdef PYODBC_LEAK_CHECK
+void* _pyodbc_malloc(const char* filename, int lineno, size_t len);
+void _pyodbc_free(const char* filename, int lineno, void* p);
+void* _pyodbc_realloc(const char* filename, int lineno, void* p, size_t len);
+char* _pyodbc_strdup(const char* filename, int lineno, const char* sz);
+
+#define pyodbc_malloc(len) _pyodbc_malloc(__FILE__, __LINE__, len)
+#define pyodbc_free(p) _pyodbc_free(__FILE__, __LINE__, p)
+#define pyodbc_realloc(p, len) _pyodbc_realloc(__FILE__, __LINE__, p, len)
+#define pyodbc_strdup(sz) _pyodbc_strdup(__FILE__, __LINE__, sz)
+void pyodbc_leak_check();
+#else
 #define pyodbc_malloc malloc
 #define pyodbc_free free
-// #endif
+#define pyodbc_realloc realloc
+#define pyodbc_strdup _strdup
+#endif
 
 void PrintBytes(void* p, size_t len);
 const char* CTypeName(SQLSMALLINT n);
